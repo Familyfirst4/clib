@@ -1,3 +1,4 @@
+//
 // clib-package.c
 //
 // Copyright (c) 2014 Stephen Mathieson
@@ -22,6 +23,7 @@
 #include "parse-repo/parse-repo.h"
 #include "parson/parson.h"
 #include "path-join/path-join.h"
+#include "rimraf/rimraf.h"
 #include "strdup/strdup.h"
 #include "substr/substr.h"
 #include "tempdir/tempdir.h"
@@ -321,7 +323,16 @@ static inline list_t *parse_package_deps(JSON_Object *obj) {
       goto loop_cleanup;
     if (!(dep = clib_package_dependency_new(name, version)))
       goto loop_cleanup;
-    if (!(list_rpush(list, list_node_new(dep))))
+
+    list_node_t *dep_node = list_node_new(dep);
+    // note: if we fail to allocate the node itself,
+    // `dep` will never be pushed on the list
+    if (!dep_node) {
+      clib_package_dependency_free(dep);
+      goto loop_cleanup;
+    }
+
+    if (!(list_rpush(list, dep_node)))
       goto loop_cleanup;
 
     error = 0;
@@ -502,6 +513,8 @@ clib_package_t *clib_package_new(const char *json, int verbose) {
       for (unsigned int i = 0; i < json_array_get_count(flags); i++) {
         char *flag = json_array_get_string_safe(flags, i);
         if (flag) {
+          char *old_flags = pkg->flags;
+
           if (!pkg->flags) {
             pkg->flags = "";
           }
@@ -510,6 +523,7 @@ clib_package_t *clib_package_new(const char *json, int verbose) {
             goto cleanup;
           }
 
+          free(old_flags);
           free(flag);
         }
       }
@@ -693,26 +707,26 @@ clib_package_new_from_slug_with_package_name(const char *slug, int verbose,
 
   // force version number
   if (pkg->version) {
-    if (version) {
-      if (0 != strcmp(version, DEFAULT_REPO_VERSION)) {
-        _debug("forcing version number: %s (%s)", version, pkg->version);
-        free(pkg->version);
-        pkg->version = version;
-      } else {
-        free(version);
-      }
+    if (0 != strcmp(version, DEFAULT_REPO_VERSION)) {
+      _debug("forcing version number: %s (%s)", version, pkg->version);
+      free(pkg->version);
+      pkg->version = version;
+    } else {
+      free(version);
+      version = NULL;
     }
   } else {
     pkg->version = version;
   }
 
   // force package author (don't know how this could fail)
-  if (author && pkg->author) {
+  if (pkg->author) {
     if (0 != strcmp(author, pkg->author)) {
       free(pkg->author);
       pkg->author = author;
     } else {
       free(author);
+      author = NULL;
     }
   } else {
     pkg->author = strdup(author);
@@ -746,7 +760,7 @@ clib_package_new_from_slug_with_package_name(const char *slug, int verbose,
       _debug("failed to cache JSON for: %s/%s@%s", pkg->author, pkg->name,
              pkg->version);
     } else {
-      _debug("cached: %s/%s@%s", pkg->author, pkg->name, pkg->version);
+      _debug("cached json: %s/%s@%s", pkg->author, pkg->name, pkg->version);
     }
   }
 #ifdef HAVE_PTHREADS
@@ -935,7 +949,18 @@ static int fetch_package_file_work(clib_package_t *pkg, const char *dir,
 
   _debug("file URL: %s", url);
 
-  if (!(path = path_join(dir, basename(file)))) {
+  char *base_path = strdup(basename(file));
+
+  if (!base_path) {
+    rc = 1;
+    goto cleanup;
+  }
+
+  path = path_join(dir, base_path);
+
+  free(base_path);
+
+  if (!path) {
     rc = 1;
     goto cleanup;
   }
@@ -1522,7 +1547,7 @@ download:
 #ifdef HAVE_PTHREADS
   // Here there are i-1 threads running.
   for (int j = 0; j < i; j++) {
-      fetch_package_file_thread_data_t *data = fetchs[j];
+    fetch_package_file_thread_data_t *data = fetchs[j];
     int *status;
 
     pthread_join(data->thread, (void **)&status);
@@ -1544,14 +1569,6 @@ download:
   }
 #endif
 
-#ifdef HAVE_PTHREADS
-  pthread_mutex_lock(&lock.mutex);
-#endif
-  clib_cache_save_package(pkg->author, pkg->name, pkg->version, pkg_dir);
-#ifdef HAVE_PTHREADS
-  pthread_mutex_unlock(&lock.mutex);
-#endif
-
 install:
   if (pkg->configure) {
     E_FORMAT(&command, "cd %s/%s && %s", dir, pkg->name, pkg->configure);
@@ -1571,9 +1588,26 @@ install:
     rc = clib_package_install_dependencies(pkg, dir, verbose);
   }
 
+#ifdef HAVE_PTHREADS
+  pthread_mutex_lock(&lock.mutex);
+#endif
+  if (0 == rc) {
+    clib_cache_save_package(pkg->author, pkg->name, pkg->version, pkg_dir);
+    _debug("cached package: %s/%s@%s", pkg->author, pkg->name, pkg->version);
+  }
+#ifdef HAVE_PTHREADS
+  pthread_mutex_unlock(&lock.mutex);
+#endif
+
 cleanup:
-  if (pkg_dir)
+  if (pkg_dir) {
+    if (0 != rc) {
+      rimraf(pkg_dir);
+      _debug("deleted inconsistent package dir: %s", pkg_dir);
+    }
+
     free(pkg_dir);
+  }
   if (package_json)
     free(package_json);
   if (iterator)
@@ -1590,6 +1624,19 @@ cleanup:
   }
   fetchs = NULL;
 #endif
+
+#ifdef HAVE_PTHREADS
+  pthread_mutex_lock(&lock.mutex);
+#endif
+  if (0 != rc && pkg) {
+    clib_cache_delete_json(pkg->author, pkg->name, pkg->version);
+    _debug("deleted json cache: %s/%s@%s", pkg->author, pkg->name,
+           pkg->version);
+  }
+#ifdef HAVE_PTHREADS
+  pthread_mutex_unlock(&lock.mutex);
+#endif
+
   return rc;
 }
 

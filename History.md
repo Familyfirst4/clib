@@ -1,3 +1,17 @@
+2.8.2 / 2022-11-21
+==================
+  * [fix] Fixing the failing tests on MacOS (#271)
+  * [fix] Initialze the cache in every package related test (#1959247 #febea2e)
+  * [fix] Heap buffer overflow reported by Address Sanitizer (#280)
+  * [fix] Only successful installs should be cached (#281 #b7841ca #90114c2 #0c19a04 #b976c63)
+  * [fix] Incorrect upgrade message (#282)
+
+2.8.1 / 2022-03-21
+==================
+  * [add] Implement building multithreaded for windows. (#264)
+  * [fix] fix the "clib configure" command error: "free(): double free detected" (#266)
+  * [fix] fix(src/clib.c): fix null pointer reference (#df1bf57)
+
 2.8.0 / 2021-09-01
 ==================
   * [add] Run tests workflow in pull requests (8bc6089)

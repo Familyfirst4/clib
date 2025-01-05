@@ -3,7 +3,6 @@
 //
 // Copyright (c) 2014 Stephen Mathieson
 // Copyright (c) 2021 clib authors
-//
 // MIT licensed
 //
 
@@ -129,7 +128,7 @@ static char *get_uninstall_target(const char *name, const char *version) {
 
   size = asprintf(&target, "cd %s && %s", dir, val);
   if (-1 == size)
-    return NULL;
+    target = NULL;
 
 done:
   if (root)

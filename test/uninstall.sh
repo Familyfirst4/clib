@@ -1,8 +1,8 @@
 #!/bin/bash
-
 mkdir -p tmp/bin
+trap 'rm -rf tmp' EXIT
 
-clib install -c stephenmathieson/tabs-to-spaces@1.0.0 -P tmp > /dev/null || {
+clib install -c -N stephenmathieson/tabs-to-spaces@1.0.0 -P tmp > /dev/null || {
   echo >&2 "Failed to install stephenmathieson/tabs-to-spaces"
   exit 1
 }

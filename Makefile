@@ -10,6 +10,7 @@ endif
 CP      = cp -f
 RM      = rm -f
 MKDIR   = mkdir -p
+INSTALL = install
 
 SRC  = $(wildcard src/*.c)
 COMMON_SRC = $(wildcard src/common/*.c)
@@ -19,6 +20,7 @@ ODEPS = $(SDEPS:.c=.o)
 DEPS = $(filter-out $(ODEPS), $(SDEPS))
 OBJS = $(DEPS:.c=.o)
 MAKEFILES = $(wildcard deps/*/Makefile)
+HEADERS_BINS = src/common/*.h src/version.h deps/logger/logger.h
 
 export CC
 
@@ -34,7 +36,7 @@ endif
 
 ifneq (0,$(PTHREADS))
 ifndef NO_PTHREADS
-	CFLAGS += $(shell ./scripts/feature-test-pthreads && echo "-DHAVE_PTHREADS=1 -pthread" || echo "-DHAVE_PTHREADS=0")
+	CFLAGS += $(shell ./scripts/feature-test-pthreads && echo "-DHAVE_PTHREADS=1 -pthread")
 endif
 endif
 
@@ -48,7 +50,7 @@ all: $(BINS)
 
 build: $(BINS)
 
-$(BINS): $(SRC) $(MAKEFILES) $(OBJS)
+$(BINS): $(SRC) $(COMMON_SRC) $(MAKEFILES) $(OBJS) $(HEADERS_BINS)
 	$(CC) $(CFLAGS) -o $@ $(COMMON_SRC) src/$(@:.exe=).c $(OBJS) $(LDFLAGS)
 
 $(MAKEFILES):
@@ -66,12 +68,12 @@ clean:
 
 install: $(BINS)
 	$(MKDIR) $(PREFIX)/bin
-	$(foreach c, $(BINS), $(CP) $(c) $(PREFIX)/bin/$(c);)
+	$(foreach c, $(BINS), $(INSTALL) $(c) $(PREFIX)/bin/$(c);)
 
 uninstall:
 	$(foreach c, $(BINS), $(RM) $(PREFIX)/bin/$(c);)
 
-test:
+test: $(BINS)
 	@./test.sh
 
 # create a list of auto dependencies
